@@ -22,6 +22,62 @@ def make_mock_pipeline():
     return p
 
 
+def init_pipeline(model="distilgpt2", device_opt="cpu", dry_run=False, logger=None):
+    """Initialize and return a generation pipeline (callable). Returns (pipeline_callable, device).
+
+    If dry_run is True, returns the mock pipeline.
+    """
+    if logger is None:
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+    if dry_run:
+        return make_mock_pipeline(), "dry"
+
+    try:
+        from transformers import pipeline, set_seed
+    except Exception:
+        logger.error("Missing required packages. Install with: pip install -r requirements.txt")
+        raise
+
+    try:
+        set_seed(42)
+    except Exception:
+        logger.debug("set_seed not available")
+
+    dev_opt = device_opt.lower()
+    if dev_opt == "cpu":
+        device = -1
+    elif dev_opt.startswith("cuda") or dev_opt == "gpu":
+        device = 0
+    else:
+        try:
+            device = int(device_opt)
+        except Exception:
+            device = -1
+
+    logger.info("Loading model %s on device %s", model, device_opt)
+    p = pipeline("text-generation", model=model, device=device)
+    return p, device
+
+
+def generate_text(pipeline_callable, prompt, max_new_tokens=120, do_sample=True, temperature=0.8, top_k=0, top_p=0.92, repetition_penalty=1.15, num_return_sequences=1):
+    return pipeline_callable(
+        prompt,
+        max_new_tokens=max_new_tokens,
+        do_sample=do_sample,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        repetition_penalty=repetition_penalty,
+        return_full_text=False,
+        num_return_sequences=num_return_sequences,
+        truncation=True,
+        pad_token_id=50256,
+    )
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     parser = argparse.ArgumentParser(description="Simple text generator")
