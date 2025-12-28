@@ -104,3 +104,14 @@ jobs:
         with:
           name: generated-output
           path: result.txt
+
+      - name: Print generated output to logs
+        if: always()
+        run: |
+          if [ -f result.txt ]; then
+            echo "--- GENERATED OUTPUT START ---"
+            sed -n '1,200p' result.txt || true
+            echo "--- GENERATED OUTPUT END ---"
+          else
+            echo "No result.txt produced"
+          fi
