@@ -1,3 +1,5 @@
+# [![CI](https://github.com/TexasCipher/raspberry-pi-projects/actions/workflows/ci.yml/badge.svg)](https://github.com/TexasCipher/raspberry-pi-projects/actions/workflows/ci.yml)
+
 # brainai — quick start
 
 Prerequisites: Python 3.8+ and a virtual environment.
