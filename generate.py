@@ -131,41 +131,28 @@ def main(argv=None):
         print("No prompt provided")
         return 1
 
-    # Lazy import transformers so --dry-run works without installing it
-    if args.dry_run:
-        p = make_mock_pipeline()
-    else:
-        try:
-            from transformers import pipeline, set_seed
-        except Exception:
-            logger.error("Missing required packages. Install with: pip install -r requirements.txt")
-            return 2
+    # Initialize pipeline (use single init function to avoid duplication)
+    try:
+        p, device = init_pipeline(model=args.model, device_opt=args.device, dry_run=args.dry_run, logger=logger)
+    except Exception:
+        logger.error("Failed to initialize generation pipeline. Ensure transformers and torch are installed or use --dry-run.")
+        return 2
 
-        # consistent-ish results
-        try:
-            set_seed(42)
-        except Exception:
-            logger.debug("set_seed not available")
-
-        # parse device option
-        dev_opt = args.device.lower()
-        if dev_opt == "cpu":
-            device = -1
-        elif dev_opt.startswith("cuda") or dev_opt == "gpu":
-            # default to GPU 0 if 'cuda' or 'gpu' provided
-            device = 0
-        else:
-            try:
-                device = int(args.device)
-            except Exception:
-                device = -1
-
-        logger.info("Loading model %s on device %s", args.model, args.device)
-        try:
-            p = pipeline("text-generation", model=args.model, device=device)
-        except Exception as e:
-            logger.exception("Failed to initialize model pipeline: %s", e)
-            return 4
+    # Ensure tokenizer has a pad token to silence warnings when padding is needed
+    try:
+        tokenizer = getattr(p, "tokenizer", None)
+        if tokenizer is not None:
+            if getattr(tokenizer, "pad_token", None) is None:
+                # fall back to eos token if available
+                if getattr(tokenizer, "eos_token", None) is not None:
+                    try:
+                        tokenizer.pad_token = tokenizer.eos_token
+                        if getattr(tokenizer, "eos_token_id", None) is not None:
+                            tokenizer.pad_token_id = tokenizer.eos_token_id
+                    except Exception:
+                        pass
+    except Exception:
+        pass
 
     do_sample = not args.no_sample
 

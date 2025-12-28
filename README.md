@@ -4,6 +4,20 @@
 
 Prerequisites: Python 3.8+ and a virtual environment.
 
+Recommended venv location
+-------------------------
+
+For predictable behaviour, create a per-project virtual environment at `.venv` inside the project root:
+
+```bash
+cd ~/linux/projects/brainai
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+This ensures tools and paths used by scripts (and CI examples in this repo) refer to the same environment.
+
+
 1) Create and activate a venv
 
 ```bash
