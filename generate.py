@@ -37,6 +37,9 @@ def main(argv=None):
     parser.add_argument("--repetition-penalty", type=float, default=1.15, help="Repetition penalty (default: 1.15)")
     parser.add_argument("--no-sample", action="store_true", help="Disable sampling (use greedy decoding)")
     parser.add_argument("--dry-run", action="store_true", help="Run without importing heavy libraries")
+    parser.add_argument("--repl", action="store_true", help="Enter conversational REPL mode")
+    parser.add_argument("--tts", action="store_true", help="Speak responses using pyttsx3 if available")
+    parser.add_argument("--history-file", default="conversation.json", help="File to persist conversation history in REPL mode")
     args = parser.parse_args(argv)
 
     prompt = args.prompt
@@ -110,19 +113,91 @@ def main(argv=None):
 
     do_sample = not args.no_sample
 
-    out = p(
-        prompt,
-        max_new_tokens=args.max_new_tokens,
-        do_sample=do_sample,
-        temperature=args.temperature,
-        top_k=args.top_k,
-        top_p=args.top_p,
-        repetition_penalty=args.repetition_penalty,
-        return_full_text=False,
-        num_return_sequences=args.num_return_sequences,
-        truncation=True,
-        pad_token_id=50256,
-    )
+    # try to import TTS engine if requested
+    tts_engine = None
+    if args.tts:
+        try:
+            import pyttsx3
+
+            tts_engine = pyttsx3.init()
+        except Exception:
+            logger.warning("pyttsx3 not available; TTS disabled")
+            tts_engine = None
+
+    def generate_once(prompt_text):
+        return p(
+            prompt_text,
+            max_new_tokens=args.max_new_tokens,
+            do_sample=do_sample,
+            temperature=args.temperature,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty,
+            return_full_text=False,
+            num_return_sequences=args.num_return_sequences,
+            truncation=True,
+            pad_token_id=50256,
+        )
+
+    # REPL mode: interactive loop with optional history persistence and TTS
+    if args.repl:
+        import json
+        history = []
+        try:
+            if args.history_file:
+                with open(args.history_file, "r", encoding="utf-8") as hf:
+                    history = json.load(hf)
+        except Exception:
+            history = []
+
+        print("Entering REPL mode. Type 'exit' or Ctrl-C to quit.")
+        try:
+            while True:
+                try:
+                    user = input("You: ").strip()
+                except EOFError:
+                    break
+                if not user:
+                    continue
+                if user.lower() in ("exit", "quit"):
+                    break
+
+                # append to history
+                history.append({"role": "user", "text": user})
+
+                # generate
+                resp = generate_once(user)
+                try:
+                    text = resp[0].get("generated_text") if isinstance(resp[0], dict) else str(resp[0])
+                except Exception:
+                    text = str(resp)
+
+                print("AI:", text.strip())
+                history.append({"role": "assistant", "text": text.strip()})
+
+                # speak
+                if tts_engine:
+                    try:
+                        tts_engine.say(text.strip())
+                        tts_engine.runAndWait()
+                    except Exception:
+                        logger.warning("TTS engine failed to speak")
+
+                # persist history
+                try:
+                    if args.history_file:
+                        with open(args.history_file, "w", encoding="utf-8") as hf:
+                            json.dump(history[-100:], hf, ensure_ascii=False, indent=2)
+                except Exception:
+                    logger.debug("Failed to save history")
+
+        except KeyboardInterrupt:
+            print("\nExiting REPL")
+
+        return 0
+
+    # single-shot generation
+    out = generate_once(prompt)
 
     print("\n---\n")
     try:

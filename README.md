@@ -102,4 +102,20 @@ echo "Prompt" | python generate.py -m gpt2 -d cpu --repetition-penalty 1.2 -n 3
 ```
 
 
+REPL and voice
+--------------
+
+Start an interactive conversational REPL locally (optional TTS):
+
+```bash
+# dry-run REPL (no heavy installs)
+python generate.py --repl --dry-run
+
+# REPL with TTS (requires pyttsx3 installed)
+python generate.py --repl --tts
+```
+
+Conversation history is saved to `conversation.json` by default. You can change it with `--history-file my_history.json`.
+
+
 
