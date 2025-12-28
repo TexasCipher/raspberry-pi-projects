@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install test dependencies (skip heavy torch)
+        run: |
+          if [ -f requirements.txt ]; then
+            # write a requirements file excluding torch to avoid installing large CUDA wheels in CI
+            grep -v -E "^\s*torch(\b|[<>=~])" requirements.txt > .ci-requirements.txt || true
+            if [ -s .ci-requirements.txt ]; then
+              python -m pip install -r .ci-requirements.txt
+            fi
+          fi
+
+      - name: Run unit tests
+        run: |
+          python -m unittest discover -v
+
+  full-test:
+    name: Full tests (manual dispatch, matrix)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ '3.10', '3.11' ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-full-${{ matrix.python-version }}-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-full-
+
+      - name: Install full requirements (CPU torch)
+        run: |
+          if [ -f requirements.txt ]; then
+            # install everything except torch first to avoid default heavy wheels
+            grep -v -E "^\s*torch(\b|[<>=~])" requirements.txt > .ci-requirements.txt || true
+            if [ -s .ci-requirements.txt ]; then
+              python -m pip install -r .ci-requirements.txt
+            fi
+            # install CPU-only torch wheel
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          fi
+
+      - name: Run unit tests
+        run: |
+          python -m unittest discover -v
