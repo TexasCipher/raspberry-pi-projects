@@ -117,5 +117,43 @@ python generate.py --repl --tts
 
 Conversation history is saved to `conversation.json` by default. You can change it with `--history-file my_history.json`.
 
+Offline speech-to-text (VOSK)
+-----------------------------
+
+We support offline STT using VOSK. This requires downloading a VOSK model and installing audio dependencies.
+
+1) Install system deps (Linux example):
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install -y build-essential libsndfile1
+```
+
+2) Install Python deps (in venv):
+
+```bash
+pip install -r requirements.txt
+```
+
+3) Download a small English VOSK model and place it at `models/vosk-model-small-en-us-0.15`:
+
+```bash
+mkdir -p models
+cd models
+wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+unzip vosk-model-small-en-us-0.15.zip
+cd ..
+```
+
+4) Run the Flask app and record/send audio:
+
+```bash
+python app.py
+./scripts/record_and_send.py --duration 5 --url http://localhost:5000
+```
+
+The recorded audio will be transcribed locally and the transcript sent to the chat endpoint (dry-run by default).
+
+
 
 

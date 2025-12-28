@@ -84,6 +84,71 @@ def chat():
     return jsonify({"reply": text.strip()})
 
 
+@app.route("/api/transcribe", methods=["POST"])
+def transcribe():
+    """Accepts form-data file upload (wav) or raw bytes and returns transcription.
+
+    Requires a VOSK model present at env VOSK_MODEL_PATH or ./models/vosk-model-small-en-us-0.15
+    """
+    # check model path
+    model_path = os.environ.get("VOSK_MODEL_PATH", "models/vosk-model-small-en-us-0.15")
+    if not os.path.exists(model_path):
+        return jsonify({"error": "VOSK model not found", "model_path": model_path, "hint": "Download a small model and set VOSK_MODEL_PATH"}), 400
+
+    # get audio bytes
+    f = None
+    if "file" in request.files:
+        f = request.files["file"].read()
+    else:
+        f = request.get_data()
+
+    if not f:
+        return jsonify({"error": "no audio provided"}), 400
+
+    try:
+        from vosk import Model, KaldiRecognizer
+        import wave
+        import json as _json
+
+        # write bytes to temp wav
+        import tempfile
+        tf = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tf.write(f)
+        tf.flush()
+        tf.close()
+
+        wf = wave.open(tf.name, "rb")
+        if wf.getnchannels() != 1 or wf.getsampwidth() != 2:
+            # we expect mono 16-bit WAV; try to notify
+            # In many cases clients should provide compatible audio
+            pass
+
+        model = Model(model_path)
+        rec = KaldiRecognizer(model, wf.getframerate())
+        results = []
+        while True:
+            data = wf.readframes(4000)
+            if len(data) == 0:
+                break
+            if rec.AcceptWaveform(data):
+                res = _json.loads(rec.Result())
+                results.append(res.get("text", ""))
+        # final
+        res = _json.loads(rec.FinalResult())
+        results.append(res.get("text", ""))
+        transcript = " ".join([r for r in results if r])
+
+        # cleanup
+        try:
+            os.unlink(tf.name)
+        except Exception:
+            pass
+
+        return jsonify({"text": transcript})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
     # For local dev only
     app.run(host="0.0.0.0", port=5000, debug=True)
