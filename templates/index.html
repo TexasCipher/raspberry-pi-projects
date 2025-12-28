@@ -44,6 +44,115 @@
         const j = await res.json();
         append('ai', j.reply || '');
       };
+
+      // Audio recording helpers: capture microphone, encode WAV, and POST to /api/transcribe
+      let recStream = null;
+      let audioContext = null;
+      let recorderNode = null;
+      let leftChan = [];
+      let recordingLength = 0;
+
+      const recordBtn = document.createElement('button');
+      recordBtn.textContent = 'Record';
+      recordBtn.style.marginLeft = '8px';
+      document.querySelector('div[style]').appendChild(recordBtn);
+
+      function interleaveToWav(samples, sampleRate){
+        // convert Float32Array to 16-bit PCM and build WAV
+        const buffer = new ArrayBuffer(44 + samples.length * 2);
+        const view = new DataView(buffer);
+
+        function writeString(view, offset, string){
+          for (let i = 0; i < string.length; i++){
+            view.setUint8(offset + i, string.charCodeAt(i));
+          }
+        }
+
+        /* RIFF identifier */ writeString(view, 0, 'RIFF');
+        view.setUint32(4, 36 + samples.length * 2, true);
+        writeString(view, 8, 'WAVE');
+        writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(view, 36, 'data');
+        view.setUint32(40, samples.length * 2, true);
+
+        // write PCM samples
+        let offset = 44;
+        for (let i = 0; i < samples.length; i++, offset += 2){
+          let s = Math.max(-1, Math.min(1, samples[i]));
+          view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        }
+
+        return new Blob([view], { type: 'audio/wav' });
+      }
+
+      async function startRecording(){
+        if (!navigator.mediaDevices) { alert('getUserMedia not supported'); return; }
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const source = audioContext.createMediaStreamSource(recStream);
+        const bufferSize = 4096;
+        recorderNode = audioContext.createScriptProcessor(bufferSize, 1, 1);
+        recorderNode.onaudioprocess = function(e){
+          const input = e.inputBuffer.getChannelData(0);
+          leftChan.push(new Float32Array(input));
+          recordingLength += input.length;
+        };
+        source.connect(recorderNode);
+        recorderNode.connect(audioContext.destination);
+        recordBtn.textContent = 'Stop';
+        recordBtn.onclick = stopRecording;
+      }
+
+      function stopRecording(){
+        // merge buffers
+        const samples = new Float32Array(recordingLength);
+        let offset = 0;
+        for (let i = 0; i < leftChan.length; i++){
+          samples.set(leftChan[i], offset);
+          offset += leftChan[i].length;
+        }
+        const wav = interleaveToWav(samples, audioContext.sampleRate || 16000);
+
+        // reset
+        if (recStream){
+          recStream.getTracks().forEach(t => t.stop());
+        }
+        if (recorderNode){ recorderNode.disconnect(); }
+        if (audioContext){ audioContext.close(); }
+        leftChan = [];
+        recordingLength = 0;
+        recordBtn.textContent = 'Record';
+        recordBtn.onclick = startRecording;
+
+        // upload
+        const fd = new FormData();
+        fd.append('file', wav, 'recording.wav');
+        append('user', '[audio message]');
+        fetch('/api/transcribe', { method: 'POST', body: fd })
+          .then(r => r.json())
+          .then(async j => {
+            if (j.text) {
+              append('user', j.text);
+              // send to chat
+              const res = await fetch('/api/chat', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message: j.text, dry_run: true}) });
+              const out = await res.json();
+              append('ai', out.reply || '');
+            } else {
+              append('ai', 'Transcription failed');
+            }
+          })
+          .catch(e => append('ai', 'Error: ' + e.message));
+      }
+
+      // initialize record button
+      recordBtn.onclick = startRecording;
     </script>
   </body>
 </html>
