@@ -1,0 +1,106 @@
+name: On-demand generation
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Prompt text'
+        required: false
+        default: 'Hello from workflow'
+      model:
+        description: 'Model id'
+        required: false
+        default: 'distilgpt2'
+      device:
+        description: 'Device (cpu, cuda, or GPU id)'
+        required: false
+        default: 'cpu'
+      num_return_sequences:
+        description: 'Number of returned sequences'
+        required: false
+        default: '1'
+      max_new_tokens:
+        description: 'Maximum new tokens'
+        required: false
+        default: '120'
+      temperature:
+        description: 'Sampling temperature'
+        required: false
+        default: '0.8'
+      top_k:
+        description: 'Top-k sampling (0 to disable)'
+        required: false
+        default: '0'
+      top_p:
+        description: 'Top-p sampling'
+        required: false
+        default: '0.92'
+      repetition_penalty:
+        description: 'Repetition penalty'
+        required: false
+        default: '1.15'
+      no_sample:
+        description: 'Disable sampling (true/false)'
+        required: false
+        default: 'false'
+      install_full:
+        description: 'Install full requirements and CPU torch (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: ${{ runner.os }}-pip-
+
+      - name: Install full requirements (CPU torch)
+        if: ${{ github.event.inputs.install_full == 'true' }}
+        run: |
+          if [ -f requirements.txt ]; then
+            grep -v -E "^\s*torch(\b|[<>=~])" requirements.txt > .ci-requirements.txt || true
+            if [ -s .ci-requirements.txt ]; then
+              python -m pip install -r .ci-requirements.txt
+            fi
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+          fi
+
+      - name: Prepare prompt file
+        run: |
+          printf "%s" "${{ github.event.inputs.prompt }}" > prompt.txt
+
+      - name: Run generator
+        run: |
+          set -euo pipefail
+          ARGS=(--model "${{ github.event.inputs.model }}" --device "${{ github.event.inputs.device }}" -n "${{ github.event.inputs.num_return_sequences }}" --max-new-tokens "${{ github.event.inputs.max_new_tokens }}" --temperature "${{ github.event.inputs.temperature }}" --top-k "${{ github.event.inputs.top_k }}" --top-p "${{ github.event.inputs.top_p }}" --repetition-penalty "${{ github.event.inputs.repetition_penalty }}")
+          if [ "${{ github.event.inputs.no_sample }}" = 'true' ]; then
+            ARGS+=(--no-sample)
+          fi
+          if [ "${{ github.event.inputs.install_full }}" = 'true' ]; then
+            echo "Running with full dependencies"
+            python generate.py "${ARGS[@]}" < prompt.txt > result.txt || true
+          else
+            echo "Running in dry-run mode (no heavy installs)"
+            python generate.py --dry-run "${ARGS[@]}" < prompt.txt > result.txt || true
+          fi
+
+      - name: Upload generated output
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-output
+          path: result.txt
